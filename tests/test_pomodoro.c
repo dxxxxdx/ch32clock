@@ -9,19 +9,19 @@ static void testPresetCount(void)
     press(&app, CLICK);
     turn(&app, -1);
     for (int count = 1; count <= 3; ++count) {
-        assert(app.setting == PRESET_COUNT);
+        assert(app.navigation.selectedSetting == PRESET_COUNT);
         press(&app, CLICK);
-        turn(&app, count - app.draft);
+        turn(&app, count - app.navigation.editor.value);
         press(&app, CLICK);
         press(&app, BACK);
-        assert(app.card == count && app.prefs.value[PRESET_COUNT] == count);
+        assert(app.navigation.selectedPreset == count && app.prefs.presets.count == count);
         turn(&app, 1);
-        assert(app.card == 0);
+        assert(app.navigation.selectedPreset == 0);
         turn(&app, count);
         press(&app, CLICK);
         turn(&app, -1);
     }
-    assert(app.prefs.presets[1].focus == 50 && app.prefs.presets[2].focus == 15);
+    assert(app.prefs.presets.items[1].focusMinutes == 50 && app.prefs.presets.items[2].focusMinutes == 15);
 }
 
 static void testTimer(void)
@@ -32,21 +32,21 @@ static void testTimer(void)
     press(&app, CLICK);
     turn(&app, -1);
     press(&app, BACK);
-    assert(app.prefs.presets[0].focus == 26 && app.prefs.presets[0].rest == 4);
+    assert(app.prefs.presets.items[0].focusMinutes == 26 && app.prefs.presets.items[0].breakMinutes == 4);
 
     press(&app, CLICK);
     press(&app, CLICK);
-    assert(app.remaining == 312000);
+    assert(app.countdown.remainingTicks == 312000);
     advanceTimer(&app, 1);
     press(&app, CLICK);
     advanceTimer(&app, 5000);
-    assert(app.remaining == 311999);
+    assert(app.countdown.remainingTicks == 311999);
     press(&app, CLICK);
-    assert(advanceTimer(&app, 312001) && app.rest && app.remaining == 47998);
-    assert(advanceTimer(&app, 47998) && app.page == PREVIEW);
+    assert(advanceTimer(&app, 312001) && app.countdown.inBreak && app.countdown.remainingTicks == 47998);
+    assert(advanceTimer(&app, 47998) && app.navigation.page == PREVIEW);
     press(&app, CLICK);
     press(&app, BACK);
-    assert(app.page == PREVIEW);
+    assert(app.navigation.page == PREVIEW);
 }
 
 static void testSettings(void)
@@ -55,46 +55,46 @@ static void testSettings(void)
     turn(&app, -1);
     press(&app, CLICK);
     for (int setting = BRIGHTNESS; setting <= MUTE; ++setting) {
-        uint8_t original = app.prefs.value[setting];
+        uint8_t original = Pomodoro_GetSetting(&app.prefs, (Setting)setting);
         press(&app, CLICK);
         turn(&app, 1);
         press(&app, BACK);
-        assert(app.prefs.value[setting] == original);
+        assert(Pomodoro_GetSetting(&app.prefs, (Setting)setting) == original);
 
         press(&app, CLICK);
         turn(&app, 1);
         press(&app, CLICK);
-        assert(app.prefs.value[setting] == original + 1);
+        assert(Pomodoro_GetSetting(&app.prefs, (Setting)setting) == original + 1);
         turn(&app, 1);
     }
 }
 
 static void startTap(Button *button, uint32_t tick)
 {
-    assert(sampleButton(button, true, tick) == NO_CLICK);
-    assert(sampleButton(button, true, tick + 4) == NO_CLICK);
-    assert(sampleButton(button, false, tick + 10) == NO_CLICK);
+    assert(sampleButton(button, 1, tick) == NO_CLICK);
+    assert(sampleButton(button, 1, tick + 4) == NO_CLICK);
+    assert(sampleButton(button, 0, tick + 10) == NO_CLICK);
 }
 
 static void testGestures(void)
 {
     Button button = {0};
     startTap(&button, 10);
-    assert(sampleButton(&button, false, 24) == NO_CLICK);
-    assert(sampleButton(&button, false, 84) == CLICK);
+    assert(sampleButton(&button, 0, 24) == NO_CLICK);
+    assert(sampleButton(&button, 0, 84) == CLICK);
 
     startTap(&button, 100);
-    assert(sampleButton(&button, false, 114) == NO_CLICK);
+    assert(sampleButton(&button, 0, 114) == NO_CLICK);
     startTap(&button, 130);
-    assert(sampleButton(&button, false, 144) == BACK);
-    assert(sampleButton(&button, false, 220) == NO_CLICK);
+    assert(sampleButton(&button, 0, 144) == BACK);
+    assert(sampleButton(&button, 0, 220) == NO_CLICK);
 
-    sampleButton(&button, true, 0xfffffff0u);
-    sampleButton(&button, true, 0xfffffff4u);
-    assert(sampleButton(&button, true, 128) == BACK);
-    sampleButton(&button, false, 132);
-    sampleButton(&button, false, 136);
-    assert(sampleButton(&button, false, 222) == NO_CLICK);
+    sampleButton(&button, 1, 0xfffffff0u);
+    sampleButton(&button, 1, 0xfffffff4u);
+    assert(sampleButton(&button, 1, 128) == BACK);
+    sampleButton(&button, 0, 132);
+    sampleButton(&button, 0, 136);
+    assert(sampleButton(&button, 0, 222) == NO_CLICK);
 }
 
 int main(void)

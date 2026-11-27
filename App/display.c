@@ -1,133 +1,145 @@
 #include "display.h"
-#include "Component/oled/oled.h"
+#include "digit_font.h"
 #include <string.h>
 
-/* Coordinates are native OLED pixels, with eight vertical bits per byte. */
-static void pixel(unsigned x, unsigned y)
+static void line(const Pomodoro *const app, uint8_t page, const char *text)
 {
-    if (x < OLED_WIDTH && y < OLED_PAGES * 8)
-        g_oled.backBuffer->oledData[x + (y / 8) * OLED_WIDTH] |= (uint8_t)(1u << (y % 8));
+    oled_setString(app->devices.display, page, text, (uint8_t)strlen(text));
 }
 
-static void rect(int x, int y, int width, int height)
+static char *blankLine(Pomodoro *const app)
 {
-    for (int row = y; row < y + height; ++row)
-        for (int col = x; col < x + width; ++col) pixel(col, row);
+    memset(app->display.line, ' ', sizeof(app->display.line) - 1U);
+    app->display.line[sizeof(app->display.line) - 1U] = '\0';
+    return app->display.line;
 }
 
-static void line(unsigned page, const char *text)
+/* 字模在 Flash 中已经排成页和 word；此路径只调用 32 位字块搬运。 */
+static void digit(const Pomodoro *const app, const DigitFont *const font,
+                  uint8_t x, uint8_t firstPage, unsigned value)
 {
-    oled_setString(&g_oled, page, text, (uint8_t)strlen(text));
+    if (value > 9U) return;
+    unsigned glyphWords = font->widthWords * font->pageCount;
+    oled_setBlockWords(app->devices.display, x, firstPage,
+                       font->glyphs + value * glyphWords, font->widthWords, font->pageCount);
 }
 
-/* Seven-segment digits, scalable for menu values and the countdown. */
-static void digit(int x, int y, unsigned n, int scale)
+static void countdown(const Pomodoro *const app)
 {
-    static const uint8_t mask[] = {0x3f,6,0x5b,0x4f,0x66,0x6d,0x7d,7,0x7f,0x6f};
-    static const uint8_t bars[][4] = {
-        {1,0,4,1},{5,1,1,4},{5,6,1,4},{1,10,4,1},
-        {0,6,1,4},{0,1,1,4},{1,5,4,1}
-    };
-    for (unsigned i = 0; i < 7; ++i) {
-        if (mask[n] & (1u << i)) {
-            const uint8_t *b = bars[i];
-            rect(x+b[0]*scale, y+b[1]*scale, b[2]*scale, b[3]*scale);
-        }
-    }
+    unsigned seconds = (app->countdown.remainingTicks + POMODORO_TICKS_PER_SECOND - 1U) /
+                       POMODORO_TICKS_PER_SECOND;
+    unsigned minutes = seconds / 60U;
+    unsigned width = countdownDigits.widthWords * 4U;
+    unsigned left = ((OLED_WIDTH - (4U * width + 20U)) / 2U) & ~3U;
+    digit(app, &countdownDigits, left, 2U, minutes / 10U);
+    digit(app, &countdownDigits, left + width + 4U, 2U, minutes % 10U);
+    oled_setBlockWords(app->devices.display, left + 2U * width + 8U, 2U,
+                       countdownColon, 1U, countdownDigits.pageCount);
+    digit(app, &countdownDigits, left + 2U * width + 16U, 2U, seconds % 60U / 10U);
+    digit(app, &countdownDigits, left + 3U * width + 20U, 2U, seconds % 10U);
 }
 
-static void pair(int x, int y, unsigned n, int scale)
+static void durationRow(Pomodoro *const app, uint8_t page, const char *name,
+                        unsigned minutes, uint8_t selected)
 {
-    digit(x, y, n / 10, scale);
-    digit(x + 7*scale, y, n % 10, scale);
-}
-
-static void durationRow(unsigned page, const char *name, unsigned minutes, bool selected)
-{
-    char row[] = "            00 min";
+    char *row = blankLine(app);
     row[0] = selected ? '>' : ' ';
     memcpy(row + 2, name, strlen(name));
-    row[12] = '0' + minutes / 10;
-    row[13] = '0' + minutes % 10;
-    line(page, row);
+    row[12] = '0' + minutes / 10U;
+    row[13] = '0' + minutes % 10U;
+    memcpy(row + 15, "min", 3U);
+    line(app, page, row);
 }
 
-static const char *const settingNames[] = {"Brightness", "Volume", "Mute", "Preset count"};
+static const char *const settingNames[SETTING_COUNT] = {
+    [BRIGHTNESS] = "Brightness", [VOLUME] = "Volume",
+    [MUTE] = "Mute", [PRESET_COUNT] = "Preset count",
+};
 
-static void drawSettings(const Pomodoro *a, bool editingCount)
+static void drawSettings(Pomodoro *const app, uint8_t editingCount)
 {
-    line(0, "Settings");
+    const NavigationState *const nav = &app->navigation;
+    line(app, 0U, "Settings");
     for (unsigned i = 0; i < SETTING_COUNT; ++i) {
-        char row[] = "                     ";
-        row[0] = i == a->setting ? '>' : ' ';
+        char *row = blankLine(app);
+        row[0] = i == nav->selectedSetting ? '>' : ' ';
         memcpy(row + 2, settingNames[i], strlen(settingNames[i]));
         if (i == PRESET_COUNT && editingCount) {
             row[16] = '[';
-            row[17] = '0' + a->draft;
+            row[17] = '0' + nav->editor.value;
             row[18] = ']';
-        } else if (i == MUTE) strcpy(row + 17, a->prefs.value[i] ? "On" : "Off");
-        else row[17] = '0' + a->prefs.value[i];
-        line(2 + i, row);
+        } else if (i == MUTE) {
+            memcpy(row + 17, app->prefs.sound.muted ? "On" : "Off",
+                   app->prefs.sound.muted ? 2U : 3U);
+        } else row[17] = '0' + Pomodoro_GetSetting(&app->prefs, (Setting)i);
+        line(app, 2U + i, row);
     }
     const char *hint = "Tap open / Hold back";
-    if (a->setting == PRESET_COUNT) hint = "Tap edit / Hold back";
+    if (nav->selectedSetting == PRESET_COUNT) hint = "Tap edit / Hold back";
     if (editingCount) hint = "Tap OK / Hold undo";
-    line(7, hint);
+    line(app, 7U, hint);
 }
 
-void drawPomodoro(const Pomodoro *a, bool notice)
+void drawPomodoro(Pomodoro *const app)
 {
-    oled_clearBuffer(&g_oled);
-    switch (a->page) {
+    const NavigationState *const nav = &app->navigation;
+    uint8_t notice = app->service.notice.visible;
+    oled_clearBuffer(app->devices.display);
+    switch (nav->page) {
     case HOME:
     case PREVIEW:
     case EDIT_PRESET:
-        if (a->page == HOME && a->card == a->prefs.value[PRESET_COUNT]) {
-            line(0, "Settings");
-            line(7, "Tap to open");
+        if (nav->page == HOME && nav->selectedPreset == app->prefs.presets.count) {
+            line(app, 0U, "Settings");
+            line(app, 7U, "Tap to open");
         } else {
-            char title[] = "Edit Preset 1";
-            title[12] = '1' + a->card;
-            line(0, a->page == EDIT_PRESET ? title : title + 5);
-            Preset p = a->prefs.presets[a->card];
-            durationRow(2, "Focus", p.focus, a->page == EDIT_PRESET && !a->editRest);
-            durationRow(4, "Break", p.rest, a->page == EDIT_PRESET && a->editRest);
+            char *title = blankLine(app);
+            memcpy(title, "Edit Preset 1", 13U);
+            title[12] = '1' + nav->selectedPreset;
+            line(app, 0U, nav->page == EDIT_PRESET ? title : title + 5);
+            const Preset *const preset = &app->prefs.presets.items[nav->selectedPreset];
+            durationRow(app, 2U, "Focus", preset->focusMinutes,
+                        nav->page == EDIT_PRESET && !nav->editor.editingBreak);
+            durationRow(app, 4U, "Break", preset->breakMinutes,
+                        nav->page == EDIT_PRESET && nav->editor.editingBreak);
             const char *hint = "Tap open / Hold edit";
-            if (a->page == EDIT_PRESET) hint = "Tap next / Hold done";
-            if (a->page == PREVIEW) hint = notice ? "Break complete" : "Tap start / Hold back";
-            line(7, hint);
+            if (nav->page == EDIT_PRESET) hint = "Tap next / Hold done";
+            if (nav->page == PREVIEW) hint = notice ? "Break complete" : "Tap start / Hold back";
+            line(app, 7U, hint);
         }
-        if (a->page == HOME) {
-            for (unsigned i = 0; i <= a->prefs.value[PRESET_COUNT]; ++i)
-                rect(99 + 7*i, 4, 4, i == a->card ? 5 : 1);
+        if (nav->page == HOME) {
+            static const uint32_t selected = 0x3c3c3c3cU, idle = 0x08080808U;
+            for (unsigned i = 0; i <= app->prefs.presets.count; ++i)
+                oled_setBlockWords(app->devices.display, 100U + 8U * i, 0U,
+                                   i == nav->selectedPreset ? &selected : &idle, 1U, 1U);
         }
         break;
     case TIMER: {
-        unsigned seconds = (a->remaining + 199) / 200;
-        const char *heading = a->rest ? "Break" : "Focus";
-        if (a->paused) heading = a->rest ? "Break / Paused" : "Focus / Paused";
-        else if (notice && a->rest) heading = "Break / Focus done";
-        line(0, heading);
-        pair(19, 15, seconds / 60, 3);
-        rect(62, 24, 3, 3);
-        rect(62, 36, 3, 3);
-        pair(71, 15, seconds % 60, 3);
-        line(7, a->paused ? "Tap play / Hold exit" : "Tap pause / Hold exit");
+        const char *heading = app->countdown.inBreak ? "Break" : "Focus";
+        if (app->countdown.paused)
+            heading = app->countdown.inBreak ? "Break / Paused" : "Focus / Paused";
+        else if (notice && app->countdown.inBreak) heading = "Break / Focus done";
+        line(app, 0U, heading);
+        countdown(app);
+        line(app, 7U, app->countdown.paused ? "Tap play / Hold exit" : "Tap pause / Hold exit");
         break;
     }
     case SETTINGS:
-        drawSettings(a, false);
+        drawSettings(app, 0U);
         break;
     case EDIT_SETTING:
-        if (a->setting == PRESET_COUNT) {
-            drawSettings(a, true);
+        if (nav->selectedSetting == PRESET_COUNT) {
+            drawSettings(app, 1U);
             break;
         }
-        line(0, settingNames[a->setting]);
-        if (a->setting == MUTE) line(3, a->draft ? "         On" : "         Off");
-        else digit(55, 17, a->draft, 2);
-        line(7, "Tap OK / Hold back");
+        line(app, 0U, settingNames[nav->selectedSetting]);
+        if (nav->selectedSetting == MUTE) line(app, 3U, nav->editor.value ? "         On" : "         Off");
+        else {
+            unsigned left = ((OLED_WIDTH - settingDigits.widthWords * 4U) / 2U) & ~3U;
+            digit(app, &settingDigits, left, 2U, nav->editor.value);
+        }
+        line(app, 7U, "Tap OK / Hold back");
         break;
     }
-    oled_Flush(&g_oled);
+    oled_Flush(app->devices.display);
 }

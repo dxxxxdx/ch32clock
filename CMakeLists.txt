@@ -109,6 +109,8 @@ add_executable(${TARGET_NAME}
         main.c
         App/pomodoro.c
         App/display.c
+        App/digit_font.c
+        App/service.c
         Startup/startup_ch32v20x_D6.S
         User/system_ch32v20x.c
         BSP/GPIO.c
@@ -131,8 +133,10 @@ add_executable(${TARGET_NAME}
         BSP/clocktick.c
         BSP/clocktick.h
         Component/EC11/EC11.c
+        Component/EC11/EC11_ch32.c
         Component/EC11/EC11.h
         Component/buzzer/buzzer.c
+        Component/buzzer/buzzer_ch32.c
         Component/buzzer/buzzer.h
         BSP/TIM.c
         BSP/TIM.h

@@ -112,6 +112,62 @@ I2C_HW_RESULT BSP_I2C_DMA_Transmit(uint8_t *source, uint8_t address8b,
     return I2C_OK;
 }
 
+enum { I2C_READY_POLL_LIMIT = 100000U };
+
+/* 探测由轮询独占地址阶段；同时检查错误，避免把 NACK 等成超时。 */
+static I2C_HW_RESULT i2c_ready_wait(uint16_t flag)
+{
+    for (uint32_t remaining = I2C_READY_POLL_LIMIT; remaining != 0U; --remaining) {
+        uint16_t status = I2C1->STAR1;
+        if ((status & 0x4000U) != 0U) return I2C_TIMEOUT;
+        if ((status & 0x0b00U) != 0U) return I2C_BUS_ERROR; /* BERR/ARLO/OVR。 */
+        if ((status & 0x0400U) != 0U) return I2C_NACK;
+        if ((status & flag) != 0U) return I2C_OK;
+    }
+    return I2C_TIMEOUT;
+}
+
+I2C_HW_RESULT BSP_I2C_IsReady(uint8_t address8b)
+{
+    if ((address8b & 1U) != 0U) return I2C_INVALID_ARGUMENT;
+    if (txPhase != TX_IDLE || (I2C1->STAR2 & 0x0002U) != 0U) return I2C_BUSY;
+    if ((I2C1->CTLR1 & 0x0001U) == 0U) return I2C_BUS_ERROR;
+
+    uint16_t control2 = I2C1->CTLR2;
+    /* 暂停 I2C 事件/错误/缓冲中断和 DMA 请求，ADDR 由本函数清除。 */
+    I2C1->CTLR2 = control2 & (uint16_t)~0x1f00U;
+    I2C1->STAR1 = 0xb0ffU;
+    PFIC->IPRR[1] = 0x00018000U; /* 清 I2C1_EV/ER 遗留 pending。 */
+
+    I2C1->CTLR1 |= 0x0100U;
+    I2C_HW_RESULT result = i2c_ready_wait(0x0001U); /* SB。 */
+    if (result == I2C_OK) {
+        I2C1->DATAR = address8b; /* 读 STAR1 后写地址，清 SB。 */
+        result = i2c_ready_wait(0x0002U); /* ADDR 表示从设备已 ACK。 */
+    }
+
+    /* 顺序读 STAR1/STAR2，清除成功时的 ADDR；仍为主机才请求 STOP。
+     * 仲裁丢失时不向其他主机的事务强发 STOP。 */
+    (void)I2C1->STAR1;
+    uint16_t status2 = I2C1->STAR2;
+    I2C1->CTLR1 &= (uint16_t)~0x0100U; /* 也取消尚未完成的 START。 */
+    if ((status2 & 0x0001U) != 0U) I2C1->CTLR1 |= 0x0200U;
+    I2C1->STAR1 = 0xb0ffU; /* 包括 NACK 的 AF 标志，均在返回前清除。 */
+
+    if ((status2 & 0x0001U) != 0U) {
+        uint32_t remaining = I2C_READY_POLL_LIMIT;
+        while ((I2C1->CTLR1 & 0x0200U) != 0U || (I2C1->STAR2 & 0x0002U) != 0U) {
+            if (--remaining == 0U) {
+                result = I2C_TIMEOUT;
+                break;
+            }
+        }
+    }
+    PFIC->IPRR[1] = 0x00018000U;
+    I2C1->CTLR2 = control2;
+    return result;
+}
+
 /* 处理 I2C 事件：SB 时写地址，ADDR 时启动 DMA，BTF 时确认末字节发完。 */
 void I2C1_EV_IRQHandler(void)
     __attribute__((interrupt("WCH-Interrupt-fast")));

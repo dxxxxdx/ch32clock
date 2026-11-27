@@ -26,10 +26,9 @@ enum {
 /* 初始化和命令流共用静态缓冲，同一时刻只绑定一个 OLED 实例。 */
 static OLED *activeOled;
 static uint8_t initStream[sizeof(oledInitBitstream)];
-static uint8_t contrast = 0xcf;
-void oled_setContrast(uint8_t value)
+void oled_setContrast(OLED *const self, uint8_t value)
 {
-    contrast = value;
+    self->contrast = value;
 }
 
 static uint8_t windowStream[] = {0x00U, 0x81U, 0xcfU, 0x21U, 0U, 127U, 0x22U, 0U, 7U};
@@ -132,6 +131,23 @@ OLED_STATUS oled_setPages(OLED *self, uint8_t firstPage, const uint8_t *data, ui
     return OLED_OK;
 }
 
+OLED_STATUS oled_setBlockWords(OLED *const self, uint8_t x, uint8_t firstPage,
+                               const uint32_t *data, uint8_t widthWords, uint8_t pageCount)
+{
+    if (self == NULL || self->backBuffer == NULL || data == NULL ||
+        (x & 3U) != 0U || ((uintptr_t)data & 3U) != 0U || widthWords == 0U ||
+        pageCount == 0U || (unsigned)x + (unsigned)widthWords * 4U > OLED_WIDTH ||
+        firstPage >= OLED_PAGES || pageCount > OLED_PAGES - firstPage) {
+        return OLED_INVALID_ARGUMENT;
+    }
+    for (uint8_t page = 0U; page < pageCount; ++page) {
+        oledWord *dst = (oledWord *)&self->backBuffer->oledData[
+            (firstPage + page) * OLED_WIDTH + x];
+        for (uint8_t word = 0U; word < widthWords; ++word) *dst++ = *data++;
+    }
+    return OLED_OK;
+}
+
 OLED_STATUS oled_Flush(OLED *self)
 {
     if (self == NULL || self != activeOled || self->phase == OLED_OFF) {
@@ -165,7 +181,7 @@ void OLED_Service(OLED *self)
             self->phase = OLED_WINDOW_SEND;
             break;
         case OLED_WINDOW_SEND:
-            windowStream[2] = contrast; /* DMA has released the previous command. */
+            windowStream[2] = self->contrast; /* 上一段命令 DMA 已释放。 */
             result = oled_start_dma(self, windowStream, sizeof(windowStream));
             if (result == OLED_OK) self->phase = OLED_WINDOW_WAIT;
             else if (result != OLED_BUSY) self->phase = OLED_IDLE;

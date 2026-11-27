@@ -23,6 +23,13 @@ void BSP_DMA_I2C_Init(void);
 I2C_HW_RESULT BSP_I2C_DMA_Transmit(uint8_t *source, uint8_t address8b,
                                     uint16_t lenth);
 
+/* 同步探测设备是否应答：START + 8 位写地址 + STOP，不发送数据。
+ * 地址格式与 DMA_Transmit 相同，如 OLED 0x3C 传 0x78。
+ * 仅在初始化完成后的主循环上下文调用；DMA/总线忙时返回 I2C_BUSY。
+ * 有限轮询等待；返回 I2C_OK、I2C_NACK、I2C_TIMEOUT 或相应错误。
+ * 不改 DMA 传输结果，也不触发 DMA 完成回调。 */
+I2C_HW_RESULT BSP_I2C_IsReady(uint8_t address8b);
+
 extern volatile uint8_t BSP_I2C_DMA_Busy;
 /* 传输中为 I2C_BUSY；完成后为最终结果。 */
 extern volatile I2C_HW_RESULT BSP_I2C_DMA_Result;

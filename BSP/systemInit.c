@@ -21,6 +21,8 @@ void BSP_SystemInit(void)
     clockTick5ms_Init();   /* SysTick 每 5 ms 中断一次 */
 
     BSP_DMA_I2C_Init();    /* I2C1 400 kHz、DMA1 Channel6 */
+    /* 上电先探测 OLED：7 位地址 0x3C，线上写地址 0x78；结果不阻断启动。 */
+    (void)BSP_I2C_IsReady(0x78U);
     BSP_IRQ_Init();        /* DMA、I2C 和 PA5/6/7 的中断 */
 }
 

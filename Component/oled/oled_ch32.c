@@ -37,6 +37,7 @@ static OLED_STATUS oled_ch32_transmit(OLED *self, uint8_t *data, uint16_t length
 
 OLED g_oled = {
     .address = 0x3CU,
+    .contrast = 0xcfU,
     .frontBuffer = &oledFrames[0],
     .backBuffer = &oledFrames[1],
     .transmit = oled_ch32_transmit,
