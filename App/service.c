@@ -28,8 +28,6 @@ void Pomodoro_Init(Pomodoro *const app)
     app->countdown = (CountdownState){0};
     app->service.notice = (NoticeState){0};
     Buzzer_Stop(app->devices.buzzer);
-    if (oled_Init(app->devices.display) != OLED_OK) return;
-
     EC11Input input;
     EC11_Read(app->devices.encoder, &input); /* 丢弃初始化期间的转动。 */
     app->button = (Button){

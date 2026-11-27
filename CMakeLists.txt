@@ -132,6 +132,8 @@ add_executable(${TARGET_NAME}
         Component/oled/oledConst.h
         BSP/clocktick.c
         BSP/clocktick.h
+        bootLoader/bootCfg.c
+        bootLoader/bootCfg.h
         Component/EC11/EC11.c
         Component/EC11/EC11_ch32.c
         Component/EC11/EC11.h
@@ -165,7 +167,7 @@ target_compile_definitions(${TARGET_NAME} PRIVATE
 # =========================================================================
 target_compile_options(${TARGET_NAME} PRIVATE
         ${COMMON_COMPILE_FLAGS}
-        "$<$<CONFIG:Debug>:-Og;-g3>"
+        "$<$<CONFIG:Debug>:-O2;-g3>"
         $<$<COMPILE_LANGUAGE:ASM>:-x>
         $<$<COMPILE_LANGUAGE:ASM>:assembler-with-cpp>
 )

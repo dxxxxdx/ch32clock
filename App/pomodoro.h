@@ -106,7 +106,7 @@ uint8_t advanceTimer(Pomodoro *app, uint32_t elapsed);
 Gesture sampleButton(Button *button, uint8_t down, uint32_t now);
 uint8_t Pomodoro_GetSetting(const Preferences *prefs, Setting setting);
 
-/* BSP 初始化之后调用一次；运行状态保存在应用实例中。 */
+/* 外设初始化完成后调用一次；运行状态保存在应用实例中。 */
 void Pomodoro_Init(Pomodoro *app);
 void Pomodoro_Service(Pomodoro *app);
 

@@ -212,6 +212,7 @@ int main(int argc, char **argv)
 {
     testWordBlocks();
     testEncoder();
+    assert(oled_Init(&display) == OLED_OK);
     testService();
     testDisplay(argc > 1 ? argv[1] : NULL);
     puts("Passed word blits, encoder snapshots, service timing and display tests.");
